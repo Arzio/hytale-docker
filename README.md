@@ -6,6 +6,11 @@
    A Docker containerization setup for running a Hytale game server. This project provides a complete Docker Compose configuration with an automated build process to download and run the Hytale server.
 </center>
 
+## Language / Idioma
+
+- 🇺🇸 [English (EN)](./docs/en/Getting%20Started.md)
+- 🇧🇷 [Português (PT-BR)](./docs/pt-BR/Iniciando.md)
+
 ## Overview
 
 This project containerizes the Hytale server using Docker, making it easy to deploy and manage the server with consistent configuration. It includes:
