@@ -165,8 +165,6 @@ TOKEN_URL="https://oauth.accounts.hytale.com/oauth2/token"
 SCOPE="openid offline auth:server"
 PROFILES_URL="https://account-data.hytale.com/my-account/get-profiles"
 SESSION_URL="https://sessions.hytale.com/game-session/new"
-PROFILES_URL="https://account-data.hytale.com/my-account/get-profiles"
-SESSION_URL="https://sessions.hytale.com/game-session/new"
 
 # Function to perform Device Code Flow authentication
 authenticate_device_flow() {
@@ -320,12 +318,13 @@ refresh_tokens() {
     fi
     
     REFRESH_TOKEN=$(jq -r '.refresh_token // empty' "$TOKEN_FILE")
+    PROFILE_UUID=$(jq -r '.profile_uuid // empty' "$TOKEN_FILE")
     
     if [ -z "$REFRESH_TOKEN" ]; then
         return 1
     fi
     
-    echo "Refreshing tokens..."
+    echo "Refreshing OAuth2 tokens..."
     TOKEN_RESPONSE=$(curl -s -X POST "$TOKEN_URL" \
         -H "Content-Type: application/x-www-form-urlencoded" \
         -d "client_id=$CLIENT_ID" \
@@ -339,16 +338,94 @@ refresh_tokens() {
         return 1
     fi
     
-    # Extract and save new tokens
+    # Extract OAuth2 tokens
     ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token // empty')
+    NEW_REFRESH_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.refresh_token // empty')
+    ID_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.id_token // empty')
     
-    if [ -n "$ACCESS_TOKEN" ]; then
-        echo "$TOKEN_RESPONSE" > "$TOKEN_FILE"
-        echo "Tokens refreshed successfully"
+    if [ -z "$ACCESS_TOKEN" ]; then
+        return 1
+    fi
+    
+    # Use existing refresh_token if new one not provided
+    if [ -z "$NEW_REFRESH_TOKEN" ] || [ "$NEW_REFRESH_TOKEN" = "null" ]; then
+        NEW_REFRESH_TOKEN="$REFRESH_TOKEN"
+    fi
+    
+    # Use HYTALE_SERVER_OWNER_UUID if set, otherwise use stored profile UUID
+    if [ -n "$HYTALE_SERVER_OWNER_UUID" ]; then
+        PROFILE_UUID="$HYTALE_SERVER_OWNER_UUID"
+    fi
+    
+    if [ -z "$PROFILE_UUID" ] || [ "$PROFILE_UUID" = "null" ]; then
+        # Get profile UUID if not stored
+        echo "Getting available profiles..."
+        PROFILES_RESPONSE=$(curl -s -X GET "$PROFILES_URL" \
+            -H "Authorization: Bearer $ACCESS_TOKEN")
+        PROFILE_UUID=$(echo "$PROFILES_RESPONSE" | jq -r '.profiles[0].uuid // .owner // empty')
+    fi
+    
+    if [ -z "$PROFILE_UUID" ] || [ "$PROFILE_UUID" = "null" ]; then
+        echo "WARNING: Could not get profile UUID, tokens may not work"
+        # Save OAuth2 tokens anyway
+        jq -n \
+            --arg refresh_token "$NEW_REFRESH_TOKEN" \
+            --arg access_token "$ACCESS_TOKEN" \
+            --arg id_token "$ID_TOKEN" \
+            '{
+                "refresh_token": $refresh_token,
+                "access_token": $access_token,
+                "id_token": $id_token
+            }' > "$TOKEN_FILE"
         return 0
     fi
     
-    return 1
+    # Step 5: Create Game Session to get EdDSA tokens (sessionToken and identityToken)
+    echo "Creating new game session..."
+    SESSION_RESPONSE=$(curl -s -X POST "$SESSION_URL" \
+        -H "Authorization: Bearer $ACCESS_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "{\"uuid\":\"$PROFILE_UUID\"}")
+    
+    # Extract sessionToken and identityToken (EdDSA tokens)
+    SESSION_TOKEN=$(echo "$SESSION_RESPONSE" | jq -r '.sessionToken // empty')
+    IDENTITY_TOKEN=$(echo "$SESSION_RESPONSE" | jq -r '.identityToken // empty')
+    EXPIRES_AT=$(echo "$SESSION_RESPONSE" | jq -r '.expiresAt // empty')
+    
+    if [ -z "$SESSION_TOKEN" ] || [ -z "$IDENTITY_TOKEN" ]; then
+        echo "WARNING: Failed to get new session tokens, using OAuth2 tokens only"
+        # Save OAuth2 tokens anyway
+        jq -n \
+            --arg refresh_token "$NEW_REFRESH_TOKEN" \
+            --arg access_token "$ACCESS_TOKEN" \
+            --arg id_token "$ID_TOKEN" \
+            '{
+                "refresh_token": $refresh_token,
+                "access_token": $access_token,
+                "id_token": $id_token
+            }' > "$TOKEN_FILE"
+        return 0
+    fi
+    
+    # Save all tokens (Hytale server EdDSA tokens + OAuth2 tokens)
+    jq -n \
+        --arg session_token "$SESSION_TOKEN" \
+        --arg identity_token "$IDENTITY_TOKEN" \
+        --arg refresh_token "$NEW_REFRESH_TOKEN" \
+        --arg access_token "$ACCESS_TOKEN" \
+        --arg profile_uuid "$PROFILE_UUID" \
+        --arg expires_at "$EXPIRES_AT" \
+        '{
+            "sessionToken": $session_token,
+            "identityToken": $identity_token,
+            "refresh_token": $refresh_token,
+            "access_token": $access_token,
+            "profile_uuid": $profile_uuid,
+            "expires_at": $expires_at
+        }' > "$TOKEN_FILE"
+    
+    echo "Tokens refreshed successfully"
+    return 0
 }
 
 # Check if authentication is needed
@@ -365,13 +442,53 @@ if [ -n "$SERVER_AUTH_ENABLED" ]; then
             echo "manually authenticate using: /auth login device"
         fi
     else
-        # Try to refresh tokens if refresh token exists in the file
-        REFRESH_TOKEN=$(jq -r '.refresh_token // empty' "$TOKEN_FILE" 2>/dev/null)
-        if [ -n "$REFRESH_TOKEN" ]; then
-            refresh_tokens || echo "Token refresh failed, using existing tokens"
+        echo "Checking token validity..."
+        
+        # Check if token is expired
+        EXPIRES_AT=$(jq -r '.expires_at // empty' "$TOKEN_FILE" 2>/dev/null)
+        SESSION_TOKEN=$(jq -r '.sessionToken // empty' "$TOKEN_FILE" 2>/dev/null)
+        
+        NEED_REFRESH=false
+        
+        if [ -n "$EXPIRES_AT" ] && [ "$EXPIRES_AT" != "null" ] && [ "$EXPIRES_AT" != "" ]; then
+            # Check if expires_at is in the past (format: 2026-01-07T15:00:00Z)
+            CURRENT_TIMESTAMP=$(date -u +%s)
+            EXPIRES_TIMESTAMP=$(date -u -d "$EXPIRES_AT" +%s 2>/dev/null || echo "0")
+            
+            if [ "$EXPIRES_TIMESTAMP" -gt 0 ] && [ "$CURRENT_TIMESTAMP" -ge "$EXPIRES_TIMESTAMP" ]; then
+                echo "Token expired at $EXPIRES_AT, refreshing..."
+                NEED_REFRESH=true
+            fi
+        elif [ -z "$SESSION_TOKEN" ] || [ "$SESSION_TOKEN" = "null" ] || [ "$SESSION_TOKEN" = "" ]; then
+            # No session token, need to refresh
+            echo "No valid session token found, refreshing..."
+            NEED_REFRESH=true
         fi
-
-        echo "Using existing authentication tokens"
+        
+        # Try to refresh tokens
+        REFRESH_TOKEN=$(jq -r '.refresh_token // empty' "$TOKEN_FILE" 2>/dev/null)
+        if [ -n "$REFRESH_TOKEN" ] && [ "$REFRESH_TOKEN" != "null" ]; then
+            if [ "$NEED_REFRESH" = true ]; then
+                if refresh_tokens; then
+                    echo "Tokens refreshed successfully"
+                else
+                    echo "Token refresh failed, attempting full authentication..."
+                    authenticate_device_flow
+                    if [ $? -ne 0 ]; then
+                        echo "WARNING: Authentication failed, using existing tokens (server may not work)"
+                    fi
+                fi
+            else
+                # Try to refresh anyway (OAuth2 tokens may have expired even if session tokens haven't)
+                refresh_tokens || echo "Optional token refresh failed, using existing tokens"
+            fi
+        else
+            echo "No refresh token available, attempting full authentication..."
+            authenticate_device_flow
+            if [ $? -ne 0 ]; then
+                echo "WARNING: Authentication failed, server may not start properly"
+            fi
+        fi
     fi
 fi
 

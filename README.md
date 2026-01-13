@@ -20,7 +20,7 @@ This project containerizes the Hytale server using Docker, making it easy to dep
 
 A pre-built Docker image is available on GitHub Container Registry:
 
-- **Image**: `ghcr.io/machinastudios/hytale-docker`
+- **Image**: `ghcr.io/machinastudios/hytale`
 - **Usage**: You can use this image directly without building it yourself
 
 ## Prerequisites
@@ -35,7 +35,9 @@ Create a `docker-compose.yml` file:
 ```yaml
 services:
     hytale:
-        image: ghcr.io/machinastudios/hytale-docker
+        image: ghcr.io/machinastudios/hytale
+        stdin_open: true
+        tty: true
         ports:
             - "5520:5520/udp"
         volumes:
@@ -50,11 +52,19 @@ services:
             - SERVER_BACKUP_INTERVAL=10
 ```
 
-Then start the server:
+Then start the server and attach to the console:
 
 ```bash
+# Using the run script (recommended)
+./run.sh          # Linux/macOS
+run.cmd           # Windows
+
+# Or manually
 docker-compose up -d
+docker attach hytale
 ```
+
+> **Tip**: Press `Ctrl+P`, `Ctrl+Q` to detach from the console without stopping the server.
 
 For detailed documentation, see:
 - 🇺🇸 [English (EN)](./docs/en/Getting%20Started.md)

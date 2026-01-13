@@ -20,7 +20,7 @@ Este projeto containeriza o servidor Hytale usando Docker, facilitando o deploy 
 
 Uma imagem Docker pré-construída está disponível no GitHub Container Registry:
 
-- **Imagem**: `ghcr.io/machinastudios/hytale-docker`
+- **Imagem**: `ghcr.io/machinastudios/hytale`
 - **Uso**: Você pode usar esta imagem diretamente sem construir você mesmo
 
 ## Pré-requisitos
@@ -35,7 +35,7 @@ Uma imagem Docker pré-construída está disponível no GitHub Container Registr
 1. Baixe a imagem pré-construída:
 
 ```bash
-docker pull ghcr.io/machinastudios/hytale-docker
+docker pull ghcr.io/machinastudios/hytale
 ```
 
 2. Crie um arquivo `docker-compose.yml` (veja seção de Configuração) ou use Docker diretamente:
@@ -48,7 +48,7 @@ docker run -d \
   -v ./mods:/hytale/mods \
   -v ./logs:/hytale/logs \
   -v ./universe:/hytale/universe \
-  ghcr.io/machinastudios/hytale-docker
+  ghcr.io/machinastudios/hytale
 ```
 
 ### Opção 2: Construir a partir do Código Fonte
@@ -261,7 +261,7 @@ volumes:
 Define a configuração do serviço Docker Compose:
 
 - **Nome do Serviço**: `hytale`
-- **Build**: Constrói a partir do Dockerfile local (`.`) ou pode ser configurado para usar a imagem pré-construída `ghcr.io/machinastudios/hytale-docker`
+- **Build**: Constrói a partir do Dockerfile local (`.`) ou pode ser configurado para usar a imagem pré-construída `ghcr.io/machinastudios/hytale`
 - **Mapeamento de Porta**: `5520:5520/udp` (mapeia porta 5520 do container para porta 5520 do host usando protocolo UDP)
 - **Volumes**: Recomendado montar diretórios específicos (`./backups`, `./mods`, `./logs`, `./universe`) ou montar todo o diretório `/hytale`
 - **Variáveis de Ambiente**: Configura comportamento e configurações do servidor
@@ -272,7 +272,7 @@ Define a configuração do serviço Docker Compose:
 
 **Nota**: Para usar a imagem pré-construída ao invés de construir a partir do código fonte, substitua `build: .` por:
 ```yaml
-image: ghcr.io/machinastudios/hytale-docker
+image: ghcr.io/machinastudios/hytale
 ```
 
 **Otimizações de Sistema**: A configuração inclui parâmetros otimizados do kernel Linux para desempenho de servidor de jogos. Otimizações de rede são aplicadas no nível do container via `sysctls`, enquanto limites de descritores de arquivo são definidos via `ulimits`. Observe que alguns parâmetros como `vm.swappiness`, `vm.max_map_count` e `fs.file-max` são globais do sistema e não podem ser configurados por container - eles devem ser definidos no sistema host Docker se personalização for necessária.
@@ -321,7 +321,7 @@ O script entrypoint que executa quando o container inicia:
 A forma mais fácil é usar a imagem pré-construída do GitHub Container Registry:
 
 ```bash
-docker pull ghcr.io/machinastudios/hytale-docker
+docker pull ghcr.io/machinastudios/hytale
 ```
 
 ### Construindo a partir do Código Fonte
@@ -335,7 +335,7 @@ docker build -f Dockerimage -t hytale-server .
 Ou marque com o mesmo nome da imagem pré-construída:
 
 ```bash
-docker build -f Dockerimage -t ghcr.io/machinastudios/hytale-docker .
+docker build -f Dockerimage -t ghcr.io/machinastudios/hytale .
 ```
 
 ## Executando o Container
@@ -349,7 +349,9 @@ Atualize seu `docker-compose.yml` para usar a imagem pré-construída:
 ```yaml
 services:
     hytale:
-        image: ghcr.io/machinastudios/hytale-docker
+        image: ghcr.io/machinastudios/hytale
+        stdin_open: true
+        tty: true
         ports:
             - "5520:5520/udp"
         volumes:
@@ -392,6 +394,18 @@ docker-compose up
 #### Comandos Comuns
 
 ```bash
+# Iniciar e anexar ao console do servidor (recomendado)
+./run.sh          # Linux/macOS
+run.cmd           # Windows
+
+# Ou iniciar manualmente
+docker-compose up -d
+
+# Anexar ao console do servidor
+docker attach hytale
+
+# Desanexar do console sem parar: Pressione Ctrl+P, Ctrl+Q
+
 # Parar o servidor
 docker-compose down
 
@@ -405,13 +419,33 @@ docker-compose logs -f hytale
 docker-compose pull
 ```
 
+### Anexando ao Console do Servidor
+
+O servidor Hytale fornece um console interativo para comandos do servidor. Para anexar:
+
+1. **Usando os scripts de execução** (recomendado):
+   ```bash
+   ./run.sh          # Linux/macOS
+   run.cmd           # Windows
+   ```
+
+2. **Manualmente**:
+   ```bash
+   docker attach hytale
+   ```
+
+**Importante**: 
+- Pressione `Ctrl+P`, depois `Ctrl+Q` para **desanexar** do console **sem parar** o servidor
+- Pressionar `Ctrl+C` irá **parar** o servidor
+- As opções `stdin_open: true` e `tty: true` no `docker-compose.yml` habilitam o suporte a console interativo
+
 ### Usando Docker Diretamente
 
 #### Com Imagem Pré-construída (Recomendado)
 
 ```bash
 # Baixar a imagem (se ainda não baixada)
-docker pull ghcr.io/machinastudios/hytale-docker
+docker pull ghcr.io/machinastudios/hytale
 
 # Executar o container
 docker run -d \
@@ -426,7 +460,7 @@ docker run -d \
   -e SERVER_BIND="0.0.0.0:5520" \
   -e SERVER_BACKUP_DIR="/hytale/backups" \
   -e SERVER_BACKUP_INTERVAL="10" \
-  ghcr.io/machinastudios/hytale-docker
+  ghcr.io/machinastudios/hytale
 ```
 
 #### Construindo e Executando a partir do Código Fonte
