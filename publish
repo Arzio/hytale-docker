@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# Get the current gh username
+GH_USERNAME=$(gh auth status | grep -o 'Logged in to .* as .*' | cut -d' ' -f3)
+
+# If no username is found, exit
+if [ -z "$GH_USERNAME" ]; then
+    echo "No GitHub username found"
+    exit 1
+fi
+
+# Get a token from GitHub
+GH_TOKEN=$(gh auth token)
+
+# Login to GitHub Container Registry
+docker login ghcr.io -u $GH_USERNAME --password $GH_TOKEN
+
+# Build the image
+docker build -f Dockerfile -t hytale-server .
+
+# Tag the image
+docker tag hytale-server ghcr.io/machinastudios/hytale-server:latest
+
+# Push the image
+docker push ghcr.io/machinastudios/hytale-server:latest

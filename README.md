@@ -113,6 +113,44 @@ The server can be configured using environment variables in `docker-compose.yml`
 - **Default**: `10`
 - **Usage**: Only used if `SERVER_BACKUP_DIR` is set. Defines how often backups are created
 
+### Downloader Configuration
+
+The Hytale downloader can be configured using environment variables. These variables control how the downloader fetches and updates server files:
+
+#### `DOWNLOADER_CREDENTIALS_PATH`
+- **Description**: Path to credentials file for authenticated downloads
+- **Default**: If not set, the downloader will use default credentials path (usually `/.hytale-downloader-credentials.json` in the downloader directory)
+- **Format**: Absolute file path (e.g., `/hytale/.hytale-downloader-credentials.json`)
+- **Usage**: 
+  - **Important**: If credentials are not provided via this variable or file, the downloader will prompt for authorization on the first run
+  - The authorization URL and code will be displayed in the console/logs output in the following format:
+    ```
+    Please visit the following URL to authenticate:
+    https://oauth.accounts.hytale.com/oauth2/device/verify?user_code=XXXXXX
+    Or visit the following URL and enter the code:
+    https://oauth.accounts.hytale.com/oauth2/device/verify
+    Authorization code: XXXXXX
+    ```
+  - You must visit the URL and enter the authorization code, or visit the URL with the code as a parameter
+  - After authorization, credentials will be saved automatically
+  - For persistent credentials, mount a volume to the credentials file location
+
+#### `DOWNLOADER_DOWNLOAD_PATH`
+- **Description**: Path where the downloaded server ZIP file should be saved
+- **Default**: If not set, uses the downloader's default location
+- **Format**: Absolute directory path (e.g., `/hytale/downloads`)
+- **Usage**: Customize where server files are downloaded before extraction
+
+#### `DOWNLOADER_PATCHLINE`
+- **Description**: Patchline to download from (e.g., "release", "beta", etc.)
+- **Default**: `release`
+- **Usage**: Select which patchline/version channel to download from
+
+#### `DOWNLOADER_SKIP_UPDATE_CHECK`
+- **Description**: Skip running the downloader to check/update server files
+- **Default**: Downloader runs by default to download/update server files
+- **Usage**: Set to any non-empty value to skip running the downloader (useful if files are already present)
+
 ### Volume Mounts
 
 The configuration mounts a local `./data` directory to `/hytale` in the container:
@@ -156,7 +194,10 @@ The Docker image definition that:
 
 The entrypoint script that runs when the container starts:
 
-1. **Update Check**: Runs the Hytale downloader to check for server updates
+1. **Downloader Execution**: Runs the Hytale downloader with configured options:
+   - Supports downloader configuration via environment variables
+   - Downloads/updates server files before starting the server (unless `DOWNLOADER_SKIP_UPDATE_CHECK` is set)
+   - If credentials are not provided, the downloader will display an authorization URL and code in the logs on first run
 2. **Asset Handling**: If `SERVER_ASSETS_ZIP` is set:
    - If it's a local file path (file exists), uses it directly
    - If it's a URL, downloads the assets ZIP file before using it
@@ -331,6 +372,33 @@ The backup system is automatically configured when `SERVER_BACKUP_DIR` is set:
    ```bash
    docker-compose exec hytale ls -la /hytale/
    ```
+
+### Downloader Authorization Required
+
+On the first run, if credentials are not provided, the downloader will require authorization:
+
+1. Check the container logs for an authorization URL:
+   ```bash
+   docker-compose logs hytale
+   ```
+
+2. The logs will display a URL similar to:
+   ```
+   Please visit the following URL to authorize:
+   https://...
+   ```
+
+3. Visit the URL in your browser and complete the authorization process
+
+4. After authorization, the downloader will save credentials automatically
+
+5. **For persistent credentials**: Mount a volume to the credentials file location:
+   ```yaml
+   volumes:
+       - ./data:/hytale
+       - ./credentials:/hytale/.hytale-downloader-credentials.json
+   ```
+   Then set `DOWNLOADER_CREDENTIALS_PATH=/hytale/.hytale-downloader-credentials.json`
 
 ### Port Already in Use
 

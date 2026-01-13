@@ -4,9 +4,8 @@ services:
         ports:
             - "25565:25565"
         volumes:
-            - ./data:/data
+            - ./hytale:/hytale
         environment:
             - SERVER_ACCEPT_EARLY_PLUGINS=true
             - SERVER_BIND=0.0.0.0:5520
-            - SERVER_BACKUP_DIR=/data/backups
-            - SERVER_BACKUP_INTERVAL=10
+            - SERVER_BACKUP=true
