@@ -117,44 +117,54 @@ echo "initializing server..."
 # Configure server settings from environment variables
 CONFIG_FILE="$APP_DIR/config.json"
 
-# Update config.json if it exists and environment variables are set
-if [ -f "$CONFIG_FILE" ]; then
+# Update config.json if environment variables are set.
+# If config.json doesn't exist yet, create it first (so we can inject values before `java -jar`).
+NEED_CONFIG_UPDATE=false
+if [ -n "$SERVER_NAME" ] || [ -n "$SERVER_MOTD" ] || [ -n "$SERVER_PASSWORD" ] || [ -n "$SERVER_MAX_PLAYERS" ] || [ -n "$SERVER_MAX_VIEW_RADIUS" ]; then
+    NEED_CONFIG_UPDATE=true
+fi
+
+if [ "$NEED_CONFIG_UPDATE" = true ]; then
     # Check if jq is available (should be installed in Dockerfile)
     if ! command -v jq &> /dev/null; then
         echo "WARNING: jq not found. Cannot update config.json. Please install jq in the Dockerfile."
     else
+        # Create config.json if missing
+        if [ ! -f "$CONFIG_FILE" ]; then
+            echo "config.json not found at $CONFIG_FILE - creating a new one..."
+            jq -n '{}' > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+        fi
+
         # Update ServerName if SERVER_NAME is set
         if [ -n "$SERVER_NAME" ]; then
             echo "Setting ServerName to: $SERVER_NAME"
             jq --arg name "$SERVER_NAME" '.ServerName = $name' "$CONFIG_FILE" > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
         fi
-        
+
         # Update MOTD if SERVER_MOTD is set
         if [ -n "$SERVER_MOTD" ]; then
             echo "Setting MOTD to: $SERVER_MOTD"
             jq --arg motd "$SERVER_MOTD" '.MOTD = $motd' "$CONFIG_FILE" > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
         fi
-        
+
         # Update Password if SERVER_PASSWORD is set
         if [ -n "$SERVER_PASSWORD" ]; then
             echo "Setting server password"
             jq --arg password "$SERVER_PASSWORD" '.Password = $password' "$CONFIG_FILE" > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
         fi
-        
+
         # Update MaxPlayers if SERVER_MAX_PLAYERS is set
         if [ -n "$SERVER_MAX_PLAYERS" ]; then
             echo "Setting MaxPlayers to: $SERVER_MAX_PLAYERS"
             jq --argjson max "$SERVER_MAX_PLAYERS" '.MaxPlayers = $max' "$CONFIG_FILE" > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
         fi
-        
-        # Update MaxViewRadius if SERVER_MAX_VIEW_RADIUS is set
+
+        # Update MaxViewRadius if SERVER_MAX_VIEW_RADIUS is set (numeric)
         if [ -n "$SERVER_MAX_VIEW_RADIUS" ]; then
             echo "Setting MaxViewRadius to: $SERVER_MAX_VIEW_RADIUS"
             jq --argjson radius "$SERVER_MAX_VIEW_RADIUS" '.MaxViewRadius = $radius' "$CONFIG_FILE" > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
         fi
     fi
-else
-    echo "WARNING: config.json not found at $CONFIG_FILE"
 fi
 
 # Device Code Flow (RFC 8628) Authentication
